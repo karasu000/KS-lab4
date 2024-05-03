@@ -10,7 +10,7 @@
     sin:
         .fill 8, 1, 0
         .word 0x7527
-        .fill 8, 1, 0
+        .fill 6, 1, 0
 
 .section .text
 .globl _start
@@ -25,7 +25,7 @@ _start:
 
     # Prepare sockaddr_in structure
     movw $AF_INET, sin(%rip)
-    movw $10101, %ax
+    movw $0x7527, %ax
     xchg %ah, %al
     movw %ax, sin+2(%rip)
 
